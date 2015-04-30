@@ -1,0 +1,6 @@
+bii/
+bin/
+build/
+cmake/
+deps/
+.idea/
