@@ -2,8 +2,8 @@
 A simple recording utility for the KinectOne sensor.
 
 ## Build
-- Install [biicode](www.biicode.org)
-- Install [CMake](www.cmake.org), or get biicode to install it for you with `bii setup:cpp`.
+- Install [biicode](http://www.biicode.com)
+- Install [CMake](http://www.cmake.org), or get biicode to install it for you with `bii setup:cpp`.
 - Run `bii init -l` in the project directory, followed by `bii configure -G "CMake Generator Name"` (e.g., `bii configure -G "Visual Studio 12 Win64"`)
 - Run `bii buzz` to build (binaries will be in bin/ and generated project files are in bii/build/)
 
