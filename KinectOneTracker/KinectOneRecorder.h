@@ -42,11 +42,16 @@ class KinectOneRecorder : public KinectOneListener {
     return *m_pRecording;
   }
 
+  //! Reprojects combined depthAndBody frame writing point cloud of non-body points in PLY format at plyFile
+  void reprojectDepthFramePointsToPLY(const cv::Mat& depthAndBody, const std::string& plyFile) const;
+
  private:
   void consumeColor();
   void consumeDepthAndBodyIndex();
 
-  bool m_isLive;
+  bool
+    m_isLive,
+    m_pointCloudDumped;
   const bool m_showCapture;
   const double m_fps;
   const int64_t m_frameDeltaTime;

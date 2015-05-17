@@ -1,12 +1,15 @@
 #include "./KinectOneRecorder.h"
 
 #include <string>
+#include <vector>
+#include <fstream>
 
 using std::string;  using std::cout;  using std::cerr;  using std::endl;
 
 KinectOneRecorder::KinectOneRecorder(const bool showCapture, const double fps, const string& recId)
   : m_pRecording(new Recording)
   , m_isLive(true)
+  , m_pointCloudDumped(false)
   , m_showCapture(showCapture)
   , m_fps(fps)
   , m_frameDeltaTime(static_cast<int64_t>(1.0E7 / m_fps))
@@ -118,6 +121,75 @@ void KinectOneRecorder::consumeDepthAndBodyIndex() {
         cv::waitKey(1);
       }
       if (m_depthWriter.isOpened()) { m_depthWriter << matDepthAndBodyIndex; }
+      if (!m_pointCloudDumped) {
+        reprojectDepthFramePointsToPLY(matDepthAndBodyIndex, m_pRecording->id + ".ply");
+        m_pointCloudDumped = true;
+      }
     }
   }
 }
+
+void KinectOneRecorder::reprojectDepthFramePointsToPLY(const cv::Mat& depthAndBody, const std::string& plyFile) const {
+  // Inverse of camera intrinsics matrix
+  const cv::Matx44f KINECT_ONE_INTRINSICS_INV(
+    1.f / 361.56f, 0.0f, 0.0f, -256.f / 361.56f,
+    0.0f, -1.f / 367.19f, 0.0f, 212.f / 367.19f,
+    0.0f, 0.0f, 1.0f, 0.0f,
+    0.0f, 0.0f, 0.0f, 1.0f);
+
+  // Compute image plane coords matrix
+  cv::Mat m_imgPlanePts(kDepthHeight, kDepthWidth, CV_32FC4);
+  for (int j = 0; j < m_imgPlanePts.rows; j++) {
+    for (int i = 0; i < m_imgPlanePts.cols; i++) {
+      cv::Vec4f& v = m_imgPlanePts.at<cv::Vec4f>(j, i);
+      v = KINECT_ONE_INTRINSICS_INV * cv::Vec4f(static_cast<float>(i), static_cast<float>(j), 0.0f, 1.f);
+    }
+  }
+
+  cv::flip(depthAndBody, depthAndBody, 1);  // Left-right flip
+
+  // Reconstruct depth and body index matrices
+  cv::Mat ch[3];
+  cv::split(depthAndBody, ch);
+  cv::Mat depth(kDepthWidth, kDepthHeight, CV_8UC2);
+  const cv::Mat body = ch[0];
+  cv::merge(&ch[1], 2, depth);
+  cv::Mat depthMerged(depth.rows, depth.cols, CV_16UC1);
+  memmove(depthMerged.data, depth.data, 2 * depth.rows * depth.cols);
+  const cv::Mat depthMeters = cv::Mat_<float>(depthMerged * 0.001f);
+  const cv::Matx44f extrinsics = cv::Matx44f::eye();
+
+  // Preallocate points
+  std::vector<cv::Vec3f> points;
+  points.reserve(50000);
+
+  // Compute depth and project points to world space
+  for (int j = 0; j < depth.rows; j++) {
+    for (int i = 0; i < depth.cols; i++) {
+      const uchar b = body.at<uchar>(j, i);
+      if (b != 0xff) { continue; }  // This is a body point so ignore
+      const float d = depthMeters.at<float>(j, i);
+      if (d == 0) { continue; }  // No depth value
+      const cv::Vec4f& p = m_imgPlanePts.at<cv::Vec4f>(j, i);
+      const cv::Vec4f p2 = extrinsics * cv::Vec4f(d * p[0], d * p[1], d * p[3], 1.f);
+      points.push_back(cv::Vec3f(p2[0], p2[1], p2[2]) / p2[3]);
+    }
+  }
+
+  // Write PLY file
+  std::ofstream os(plyFile);
+  const size_t numPoints = points.size();
+  os << "ply" << endl;
+  os << "format ascii 1.0" << endl;
+  os << "element vertex " << numPoints << endl;
+  os << "property float x" << endl;
+  os << "property float y" << endl;
+  os << "property float z" << endl;
+  os << "end_header" << endl;
+  for (size_t iPoint = 0; iPoint < numPoints; ++iPoint) {
+    const cv::Vec3f& p = points[iPoint];
+    os << p[0] << " " << p[1] << " " << p[2] << endl;
+  }
+  os.close();
+}
+
